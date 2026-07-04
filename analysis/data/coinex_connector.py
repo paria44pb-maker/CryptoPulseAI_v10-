@@ -53,7 +53,11 @@ class CoinExREST:
 
         return response.json()
 
-  class CoinExWebSocket:
+
+# ======================================================
+# COINEX WEBSOCKET (LIVE MARKET DATA)
+# ======================================================
+class CoinExWebSocket:
 
     def __init__(self, symbol="BTCUSDT"):
         self.symbol = symbol.lower()
@@ -74,7 +78,7 @@ class CoinExREST:
                 for cb in self.callbacks:
                     await cb(data["data"])
 
-        except:
+        except Exception:
             pass
 
     # --------------------------------------------------
@@ -93,7 +97,11 @@ class CoinExREST:
                 msg = await ws.recv()
                 await self.handle(msg)
 
-          class MarketAdapter:
+
+# ======================================================
+# MARKET DATA ADAPTER (NORMALIZER)
+# ======================================================
+class MarketAdapter:
 
     def normalize(self, raw):
 
@@ -102,4 +110,4 @@ class CoinExREST:
             "price": raw.get("last", 0),
             "volume": raw.get("volume", 0),
             "timestamp": raw.get("ts", 0)
-      }
+        }
