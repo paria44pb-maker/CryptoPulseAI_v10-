@@ -2,9 +2,15 @@ import asyncio
 import logging
 import time
 
+# ======================================================
+# CORE
+# ======================================================
 from analysis.core.context_builder import ContextBuilder
 from analysis.core.aggregator import Aggregator
 
+# ======================================================
+# ENGINES
+# ======================================================
 from analysis.engines.trend_engine import TrendEngine
 from analysis.engines.momentum_engine import MomentumEngine
 from analysis.engines.volume_engine import VolumeEngine
@@ -12,11 +18,23 @@ from analysis.engines.volatility_engine import VolatilityEngine
 from analysis.engines.structure_engine import StructureEngine
 from analysis.price_action import PriceAction
 
+# ======================================================
+# AI LAYER
+# ======================================================
 from analysis.ai.insight_engine import InsightEngine
 from analysis.ai.scenario_engine import ScenarioEngine
 from analysis.ai.risk_engine import RiskEngine
 
+# ======================================================
+# EXECUTION
+# ======================================================
 from analysis.execution.execution_router import ExecutionRouter
+
+
+# ======================================================
+# GLOBAL LIVE DATA HOLDER
+# ======================================================
+latest_market_data = {}
 
 
 # ======================================================
@@ -38,8 +56,12 @@ def setup_system():
     price_action = PriceAction(logger)
 
     engines = [
-        trend, momentum, volume,
-        volatility, structure, price_action
+        {"name": "trend", "analyze": trend.analyze},
+        {"name": "momentum", "analyze": momentum.analyze},
+        {"name": "volume", "analyze": volume.analyze},
+        {"name": "volatility", "analyze": volatility.analyze},
+        {"name": "structure", "analyze": structure.analyze},
+        {"name": "price_action", "analyze": price_action.analyze},
     ]
 
     insight_engine = InsightEngine(logger)
@@ -47,12 +69,12 @@ def setup_system():
     risk_engine = RiskEngine(logger)
 
     # ======================================================
-    # EXECUTION LAYER (READY FOR EXCHANGE API)
+    # EXECUTION LAYER (SAFE MOCK / READY FOR EXCHANGE API)
     # ======================================================
     class ExecutionLayer:
         async def execute(self, signal):
-            logging.info(f"[EXECUTION] {signal.symbol} | {signal.signal}")
-            return True  # placeholder for real exchange order
+            logger.info(f"[EXECUTION] {signal.symbol} | {signal.signal}")
+            return True
 
     execution_layer = ExecutionLayer()
 
@@ -71,20 +93,11 @@ def setup_system():
 
 
 # ======================================================
-# MOCK MARKET DATA (REPLACE WITH COINEX API)
+# MARKET DATA HANDLER (FROM WS)
 # ======================================================
-async def fetch_market_data():
-
-    return {
-        "symbol": "BTCUSDT",
-        "timeframe": "5m",
-        "timestamp": time.time(),
-        "candles": [
-            {"open": 100, "high": 110, "low": 95, "close": 108, "volume": 1200},
-            {"open": 108, "high": 115, "low": 107, "close": 112, "volume": 1300},
-            {"open": 112, "high": 118, "low": 110, "close": 117, "volume": 1500},
-        ]
-    }
+def on_market_data(data):
+    global latest_market_data
+    latest_market_data = data
 
 
 # ======================================================
@@ -92,68 +105,84 @@ async def fetch_market_data():
 # ======================================================
 async def run_live():
 
+    global latest_market_data
+
     system = setup_system()
 
     while True:
 
-        # 1. GET MARKET DATA
-        market_data = await fetch_market_data()
+        if not latest_market_data:
+            await asyncio.sleep(1)
+            continue
 
-        # 2. BUILD CONTEXT
+        market_data = latest_market_data
+
+        # ==================================================
+        # CONTEXT BUILD
+        # ==================================================
         context = system["context_builder"].build(market_data)
 
-        # 3. RUN ALL ENGINES
+        # ==================================================
+        # ENGINE RUN
+        # ==================================================
         results = {}
 
         for engine in system["engines"]:
             try:
-                results[type(engine).__name__] = engine.analyze(context)
-            except Exception:
-                continue
+                results[engine["name"]] = engine["analyze"](context)
+            except Exception as e:
+                system["logger"].error(f"Engine error {engine['name']}: {e}")
 
-        # 4. AGGREGATION
+        # ==================================================
+        # AGGREGATION
+        # ==================================================
         aggregated = system["aggregator"].merge(results)
 
-        # 5. AI INSIGHT
+        # ==================================================
+        # INSIGHT
+        # ==================================================
         insight = system["insight_engine"].build_insight(aggregated)
 
-        # 6. SCENARIO ENGINE
+        # ==================================================
+        # SCENARIOS
+        # ==================================================
         scenarios = system["scenario_engine"].build_scenarios(aggregated)
 
-        # 7. SIGNAL OBJECT
+        # ==================================================
+        # SIGNAL
+        # ==================================================
         class Signal:
             def __init__(self):
-                self.symbol = market_data["symbol"]
+                self.symbol = market_data.get("symbol", "UNKNOWN")
                 self.signal = aggregated.get("market_bias", "NEUTRAL")
-                self.confidence_score = insight["confidence"]
+                self.confidence_score = insight.get("confidence", 0)
 
         signal = Signal()
 
-        # 8. PORTFOLIO MOCK
+        # ==================================================
+        # PORTFOLIO MOCK
+        # ==================================================
         portfolio = type("Portfolio", (), {
             "cash": 10000,
             "exposure": 0.05
         })()
 
-        # 9. EXECUTION ROUTING
+        # ==================================================
+        # EXECUTION ROUTER
+        # ==================================================
         execution_result = await system["router"].route(portfolio, signal)
 
-        # 10. OUTPUT
-        print("\n================ LIVE SYSTEM UPDATE ================\n")
+        # ==================================================
+        # OUTPUT
+        # ==================================================
+        print("\n================ LIVE UPDATE ================\n")
 
-        print("AGGREGATED:")
-        print(aggregated)
+        print("Market Data:", market_data)
+        print("\nAggregated:", aggregated)
+        print("\nInsight:", insight)
+        print("\nScenarios:", scenarios)
+        print("\nExecution:", execution_result)
 
-        print("\nINSIGHT:")
-        print(insight)
-
-        print("\nSCENARIOS:")
-        print(scenarios)
-
-        print("\nEXECUTION:")
-        print(execution_result)
-
-        # delay (live cycle)
         await asyncio.sleep(5)
 
 
