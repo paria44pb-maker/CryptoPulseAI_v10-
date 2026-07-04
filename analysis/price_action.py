@@ -19,68 +19,83 @@ class PriceAction:
             "rejections": rejections,
             "trend": trend
         }
-def detect_structure(self, candles):
 
-    highs = [c["high"] for c in candles]
-    lows = [c["low"] for c in candles]
+    # ======================================================
+    # STRUCTURE
+    # ======================================================
+    def detect_structure(self, candles):
 
-    if highs[-1] > max(highs[:-1]):
-        return "BULLISH_STRUCTURE"
+        highs = [c["high"] for c in candles]
+        lows = [c["low"] for c in candles]
 
-    if lows[-1] < min(lows[:-1]):
-        return "BEARISH_STRUCTURE"
+        if highs[-1] > max(highs[:-1]):
+            return "BULLISH_STRUCTURE"
 
-    return "RANGE"
+        if lows[-1] < min(lows[:-1]):
+            return "BEARISH_STRUCTURE"
+
+        return "RANGE"
+
+    # ======================================================
+    # TREND
+    # ======================================================
     def detect_trend(self, candles):
 
-    closes = [c["close"] for c in candles[-10:]]
+        closes = [c["close"] for c in candles[-10:]]
 
-    up = 0
-    down = 0
+        up = 0
+        down = 0
 
-    for i in range(1, len(closes)):
-        if closes[i] > closes[i - 1]:
-            up += 1
-        else:
-            down += 1
+        for i in range(1, len(closes)):
+            if closes[i] > closes[i - 1]:
+                up += 1
+            else:
+                down += 1
 
-    if up > down:
-        return "UPTREND"
+        if up > down:
+            return "UPTREND"
 
-    if down > up:
-        return "DOWNTREND"
+        if down > up:
+            return "DOWNTREND"
 
-    return "SIDEWAYS"
+        return "SIDEWAYS"
+
+    # ======================================================
+    # BREAKOUTS
+    # ======================================================
     def detect_breakouts(self, candles):
 
-    last_close = candles[-1]["close"]
-    prev_high = max(c["high"] for c in candles[:-1])
-    prev_low = min(c["low"] for c in candles[:-1])
+        last_close = candles[-1]["close"]
+        prev_high = max(c["high"] for c in candles[:-1])
+        prev_low = min(c["low"] for c in candles[:-1])
 
-    breakouts = []
+        breakouts = []
 
-    if last_close > prev_high:
-        breakouts.append("UP_BREAKOUT")
+        if last_close > prev_high:
+            breakouts.append("UP_BREAKOUT")
 
-    if last_close < prev_low:
-        breakouts.append("DOWN_BREAKOUT")
+        if last_close < prev_low:
+            breakouts.append("DOWN_BREAKOUT")
 
-    return breakouts
+        return breakouts
+
+    # ======================================================
+    # REJECTIONS
+    # ======================================================
     def detect_rejections(self, candles):
 
-    results = []
+        results = []
 
-    for c in candles[-10:]:
+        for c in candles[-10:]:
 
-        body = abs(c["close"] - c["open"])
-        upper_wick = c["high"] - max(c["open"], c["close"])
-        lower_wick = min(c["open"], c["close"]) - c["low"]
+            body = abs(c["close"] - c["open"])
+            upper_wick = c["high"] - max(c["open"], c["close"])
+            lower_wick = min(c["open"], c["close"]) - c["low"]
 
-        if upper_wick > body * 2:
-            results.append("BEARISH_REJECTION")
+            if upper_wick > body * 2:
+                results.append("BEARISH_REJECTION")
 
-        if lower_wick > body * 2:
-            results.append("BULLISH_REJECTION")
+            if lower_wick > body * 2:
+                results.append("BULLISH_REJECTION")
 
-    return results
-    
+        return results
