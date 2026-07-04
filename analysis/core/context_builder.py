@@ -4,6 +4,9 @@ class ContextBuilder:
         self.logger = logger
         self.name = "context_builder"
 
+    # ======================================================
+    # BUILD CONTEXT
+    # ======================================================
     def build(self, market_data):
 
         if not market_data:
@@ -22,3 +25,45 @@ class ContextBuilder:
         }
 
         return context
+
+    # ======================================================
+    # CLEAN CANDLES
+    # ======================================================
+    def clean_candles(self, candles):
+
+        if not candles:
+            return []
+
+        valid = []
+
+        for c in candles:
+            if self.is_valid_candle(c):
+                valid.append(c)
+
+        return valid
+
+    # ======================================================
+    # VALIDATE CANDLE
+    # ======================================================
+    def is_valid_candle(self, candle):
+
+        required_fields = ["open", "high", "low", "close"]
+
+        for field in required_fields:
+            if field not in candle:
+                return False
+
+        if candle["high"] < candle["low"]:
+            return False
+
+        if candle["close"] == 0:
+            return False
+
+        return True
+
+    # ======================================================
+    # OPTIONAL NORMALIZE (future use)
+    # ======================================================
+    def normalize(self, candles):
+
+        return candles
