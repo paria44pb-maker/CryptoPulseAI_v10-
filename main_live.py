@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import time
 
 # ======================================================
 # CORE
@@ -30,11 +29,17 @@ from analysis.ai.risk_engine import RiskEngine
 # ======================================================
 from analysis.execution.execution_router import ExecutionRouter
 
+# ======================================================
+# COINEX CONNECTOR
+# ======================================================
+from analysis.data.coinex_connector import CoinExWebSocket, MarketAdapter
+
 
 # ======================================================
-# GLOBAL LIVE DATA HOLDER
+# GLOBAL STATE
 # ======================================================
 latest_market_data = {}
+adapter = MarketAdapter()
 
 
 # ======================================================
@@ -69,7 +74,7 @@ def setup_system():
     risk_engine = RiskEngine(logger)
 
     # ======================================================
-    # EXECUTION LAYER (SAFE MOCK / READY FOR EXCHANGE API)
+    # EXECUTION LAYER (SAFE MODE)
     # ======================================================
     class ExecutionLayer:
         async def execute(self, signal):
@@ -93,11 +98,13 @@ def setup_system():
 
 
 # ======================================================
-# MARKET DATA HANDLER (FROM WS)
+# MARKET DATA HANDLER (WS CALLBACK)
 # ======================================================
-def on_market_data(data):
+async def on_market_data(data):
+
     global latest_market_data
-    latest_market_data = data
+
+    latest_market_data = adapter.normalize(data)
 
 
 # ======================================================
@@ -118,7 +125,7 @@ async def run_live():
         market_data = latest_market_data
 
         # ==================================================
-        # CONTEXT BUILD
+        # CONTEXT
         # ==================================================
         context = system["context_builder"].build(market_data)
 
@@ -131,7 +138,7 @@ async def run_live():
             try:
                 results[engine["name"]] = engine["analyze"](context)
             except Exception as e:
-                system["logger"].error(f"Engine error {engine['name']}: {e}")
+                system["logger"].error(f"Engine error: {e}")
 
         # ==================================================
         # AGGREGATION
@@ -139,17 +146,17 @@ async def run_live():
         aggregated = system["aggregator"].merge(results)
 
         # ==================================================
-        # INSIGHT
+        # INSIGHT ENGINE
         # ==================================================
         insight = system["insight_engine"].build_insight(aggregated)
 
         # ==================================================
-        # SCENARIOS
+        # SCENARIO ENGINE
         # ==================================================
         scenarios = system["scenario_engine"].build_scenarios(aggregated)
 
         # ==================================================
-        # SIGNAL
+        # SIGNAL BUILD
         # ==================================================
         class Signal:
             def __init__(self):
@@ -168,7 +175,7 @@ async def run_live():
         })()
 
         # ==================================================
-        # EXECUTION ROUTER
+        # EXECUTION ROUTE
         # ==================================================
         execution_result = await system["router"].route(portfolio, signal)
 
@@ -176,18 +183,36 @@ async def run_live():
         # OUTPUT
         # ==================================================
         print("\n================ LIVE UPDATE ================\n")
-
         print("Market Data:", market_data)
-        print("\nAggregated:", aggregated)
-        print("\nInsight:", insight)
-        print("\nScenarios:", scenarios)
-        print("\nExecution:", execution_result)
+        print("Aggregated:", aggregated)
+        print("Insight:", insight)
+        print("Scenarios:", scenarios)
+        print("Execution:", execution_result)
 
         await asyncio.sleep(5)
 
 
 # ======================================================
-# ENTRY POINT
+# WEBSOCKET START
 # ======================================================
+async def start_ws():
+
+    ws = CoinExWebSocket("BTCUSDT")
+    ws.subscribe(on_market_data)
+
+    await ws.start()
+
+
+# ======================================================
+# MAIN ENTRY (WS + LIVE LOOP)
+# ======================================================
+async def main():
+
+    task_ws = asyncio.create_task(start_ws())
+    task_live = asyncio.create_task(run_live())
+
+    await asyncio.gather(task_ws, task_live)
+
+
 if __name__ == "__main__":
-    asyncio.run(run_live())
+    asyncio.run(main())
