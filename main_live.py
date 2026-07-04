@@ -25,12 +25,13 @@ from analysis.ai.scenario_engine import ScenarioEngine
 from analysis.ai.risk_engine import RiskEngine
 
 # ======================================================
-# EXECUTION
+# EXECUTION (REAL COINEX)
 # ======================================================
-from analysis.execution.execution_router import ExecutionRouter
+from analysis.execution.coinex_execution import CoinExExecution
+from analysis.execution.execution_layer import ExecutionLayer
 
 # ======================================================
-# COINEX CONNECTOR
+# DATA (WEB SOCKET)
 # ======================================================
 from analysis.data.coinex_connector import CoinExWebSocket, MarketAdapter
 
@@ -50,9 +51,15 @@ def setup_system():
     logger = logging.getLogger("LIVE_TRADING")
     logging.basicConfig(level=logging.INFO)
 
+    # ==================================================
+    # CORE MODULES
+    # ==================================================
     context_builder = ContextBuilder(logger)
     aggregator = Aggregator(logger)
 
+    # ==================================================
+    # ENGINE SET
+    # ==================================================
     trend = TrendEngine(logger)
     momentum = MomentumEngine(logger)
     volume = VolumeEngine(logger)
@@ -69,21 +76,42 @@ def setup_system():
         {"name": "price_action", "analyze": price_action.analyze},
     ]
 
+    # ==================================================
+    # AI MODULES
+    # ==================================================
     insight_engine = InsightEngine(logger)
     scenario_engine = ScenarioEngine(logger)
     risk_engine = RiskEngine(logger)
 
-    # ======================================================
-    # EXECUTION LAYER (SAFE MODE)
-    # ======================================================
-    class ExecutionLayer:
-        async def execute(self, signal):
-            logger.info(f"[EXECUTION] {signal.symbol} | {signal.signal}")
-            return True
+    # ==================================================
+    # COINEX EXECUTION ENGINE (REAL)
+    # ==================================================
+    coinex_executor = CoinExExecution(
+        api_key="YOUR_API_KEY",
+        secret_key="YOUR_SECRET_KEY"
+    )
 
-    execution_layer = ExecutionLayer()
+    execution_layer = ExecutionLayer(coinex_executor, logger)
 
-    router = ExecutionRouter(logger, risk_engine, execution_layer)
+    # ==================================================
+    # ROUTER
+    # ==================================================
+    class ExecutionRouter:
+        def __init__(self, risk_engine, execution_layer):
+            self.risk_engine = risk_engine
+            self.execution_layer = execution_layer
+
+        async def route(self, portfolio, signal):
+
+            # Risk Check
+            if not self.risk_engine.evaluate(signal, portfolio):
+                return {"status": "REJECTED_BY_RISK"}
+
+            # Execute Trade
+            result = await self.execution_layer.execute(signal, portfolio)
+            return result
+
+    router = ExecutionRouter(risk_engine, execution_layer)
 
     return {
         "logger": logger,
@@ -98,7 +126,7 @@ def setup_system():
 
 
 # ======================================================
-# MARKET DATA HANDLER (WS CALLBACK)
+# MARKET DATA CALLBACK (WS)
 # ======================================================
 async def on_market_data(data):
 
@@ -125,12 +153,12 @@ async def run_live():
         market_data = latest_market_data
 
         # ==================================================
-        # CONTEXT
+        # CONTEXT BUILD
         # ==================================================
         context = system["context_builder"].build(market_data)
 
         # ==================================================
-        # ENGINE RUN
+        # RUN ENGINES
         # ==================================================
         results = {}
 
@@ -146,7 +174,7 @@ async def run_live():
         aggregated = system["aggregator"].merge(results)
 
         # ==================================================
-        # INSIGHT ENGINE
+        # AI INSIGHT
         # ==================================================
         insight = system["insight_engine"].build_insight(aggregated)
 
@@ -167,7 +195,7 @@ async def run_live():
         signal = Signal()
 
         # ==================================================
-        # PORTFOLIO MOCK
+        # MOCK PORTFOLIO
         # ==================================================
         portfolio = type("Portfolio", (), {
             "cash": 10000,
@@ -175,7 +203,7 @@ async def run_live():
         })()
 
         # ==================================================
-        # EXECUTION ROUTE
+        # EXECUTION
         # ==================================================
         execution_result = await system["router"].route(portfolio, signal)
 
@@ -183,6 +211,7 @@ async def run_live():
         # OUTPUT
         # ==================================================
         print("\n================ LIVE UPDATE ================\n")
+
         print("Market Data:", market_data)
         print("Aggregated:", aggregated)
         print("Insight:", insight)
@@ -204,7 +233,7 @@ async def start_ws():
 
 
 # ======================================================
-# MAIN ENTRY (WS + LIVE LOOP)
+# MAIN ENTRY
 # ======================================================
 async def main():
 
