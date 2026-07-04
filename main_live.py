@@ -23,13 +23,15 @@ from analysis.price_action import PriceAction
 from analysis.ai.insight_engine import InsightEngine
 from analysis.ai.scenario_engine import ScenarioEngine
 from analysis.ai.risk_engine import RiskEngine
+from analysis.ai.self_learning_engine import SelfLearningEngine
 
 # ======================================================
-# EXECUTION + PORTFOLIO
+# EXECUTION
 # ======================================================
 from analysis.execution.coinex_execution import CoinExExecution
 from analysis.execution.execution_layer import ExecutionLayer
 from analysis.execution.portfolio_manager import PortfolioManager
+from analysis.execution.advanced_risk import AdvancedRiskManager
 
 # ======================================================
 # DATA
@@ -59,7 +61,7 @@ def setup_system():
     aggregator = Aggregator(logger)
 
     # ==================================================
-    # ENGINES
+    # ENGINE SET
     # ==================================================
     trend = TrendEngine(logger)
     momentum = MomentumEngine(logger)
@@ -78,19 +80,21 @@ def setup_system():
     ]
 
     # ==================================================
-    # AI
+    # AI LAYER
     # ==================================================
     insight_engine = InsightEngine(logger)
     scenario_engine = ScenarioEngine(logger)
     risk_engine = RiskEngine(logger)
+    learner = SelfLearningEngine()
 
     # ==================================================
-    # PORTFOLIO MANAGER
+    # PORTFOLIO + RISK ADVANCED
     # ==================================================
     portfolio_manager = PortfolioManager()
+    advanced_risk = AdvancedRiskManager()
 
     # ==================================================
-    # COINEX EXECUTOR
+    # COINEX EXECUTION ENGINE
     # ==================================================
     coinex_executor = CoinExExecution(
         api_key="YOUR_API_KEY",
@@ -98,27 +102,33 @@ def setup_system():
     )
 
     # ==================================================
-    # EXECUTION LAYER
+    # EXECUTION LAYER (FINAL)
     # ==================================================
     execution_layer = ExecutionLayer(
         coinex_executor,
         portfolio_manager,
-        logger
+        logger,
+        risk_engine,
+        learner,
+        advanced_risk
     )
 
     # ==================================================
     # ROUTER
     # ==================================================
     class ExecutionRouter:
+
         def __init__(self, risk_engine, execution_layer):
             self.risk_engine = risk_engine
             self.execution_layer = execution_layer
 
         async def route(self, portfolio, signal):
 
+            # Risk Check
             if not self.risk_engine.evaluate(signal, portfolio):
                 return {"status": "REJECTED_BY_RISK"}
 
+            # Execute Trade
             return await self.execution_layer.execute(signal, portfolio)
 
     router = ExecutionRouter(risk_engine, execution_layer)
@@ -132,7 +142,9 @@ def setup_system():
         "scenario_engine": scenario_engine,
         "risk_engine": risk_engine,
         "router": router,
-        "portfolio_manager": portfolio_manager
+        "portfolio_manager": portfolio_manager,
+        "advanced_risk": advanced_risk,
+        "learner": learner
     }
 
 
@@ -155,6 +167,8 @@ async def run_live():
 
     system = setup_system()
     portfolio_manager = system["portfolio_manager"]
+    advanced_risk = system["advanced_risk"]
+    learner = system["learner"]
 
     while True:
 
@@ -165,20 +179,33 @@ async def run_live():
         market_data = latest_market_data
 
         # ==================================================
-        # UPDATE PORTFOLIO PRICE (PnL LIVE)
+        # UPDATE POSITIONS (PnL + TRAILING STOP)
         # ==================================================
         portfolio_manager.update_price(
             market_data["symbol"],
             market_data["price"]
         )
 
+        for pos in list(portfolio_manager.positions.values()):
+
+            result = advanced_risk.update_trailing_stop(
+                pos,
+                market_data["price"]
+            )
+
+            if result == "TRAIL_EXIT":
+                portfolio_manager.close_position(
+                    pos.symbol,
+                    "TRAILING STOP"
+                )
+
         # ==================================================
-        # CONTEXT
+        # CONTEXT BUILD
         # ==================================================
         context = system["context_builder"].build(market_data)
 
         # ==================================================
-        # ENGINES
+        # RUN ENGINES
         # ==================================================
         results = {}
 
@@ -215,7 +242,7 @@ async def run_live():
         signal = Signal()
 
         # ==================================================
-        # MOCK PORTFOLIO STATE
+        # PORTFOLIO MOCK
         # ==================================================
         portfolio = type("Portfolio", (), {
             "cash": 10000,
@@ -226,6 +253,11 @@ async def run_live():
         # EXECUTION
         # ==================================================
         execution_result = await system["router"].route(portfolio, signal)
+
+        # ==================================================
+        # LEARNING SYSTEM
+        # ==================================================
+        learner.record_trade(signal, execution_result)
 
         # ==================================================
         # OUTPUT
@@ -252,7 +284,7 @@ async def start_ws():
 
 
 # ======================================================
-# MAIN
+# MAIN ENTRY
 # ======================================================
 async def main():
 
