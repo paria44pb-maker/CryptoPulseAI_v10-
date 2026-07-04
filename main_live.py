@@ -25,13 +25,14 @@ from analysis.ai.scenario_engine import ScenarioEngine
 from analysis.ai.risk_engine import RiskEngine
 
 # ======================================================
-# EXECUTION (REAL COINEX)
+# EXECUTION + PORTFOLIO
 # ======================================================
 from analysis.execution.coinex_execution import CoinExExecution
 from analysis.execution.execution_layer import ExecutionLayer
+from analysis.execution.portfolio_manager import PortfolioManager
 
 # ======================================================
-# DATA (WEB SOCKET)
+# DATA
 # ======================================================
 from analysis.data.coinex_connector import CoinExWebSocket, MarketAdapter
 
@@ -52,13 +53,13 @@ def setup_system():
     logging.basicConfig(level=logging.INFO)
 
     # ==================================================
-    # CORE MODULES
+    # CORE
     # ==================================================
     context_builder = ContextBuilder(logger)
     aggregator = Aggregator(logger)
 
     # ==================================================
-    # ENGINE SET
+    # ENGINES
     # ==================================================
     trend = TrendEngine(logger)
     momentum = MomentumEngine(logger)
@@ -77,21 +78,33 @@ def setup_system():
     ]
 
     # ==================================================
-    # AI MODULES
+    # AI
     # ==================================================
     insight_engine = InsightEngine(logger)
     scenario_engine = ScenarioEngine(logger)
     risk_engine = RiskEngine(logger)
 
     # ==================================================
-    # COINEX EXECUTION ENGINE (REAL)
+    # PORTFOLIO MANAGER
+    # ==================================================
+    portfolio_manager = PortfolioManager()
+
+    # ==================================================
+    # COINEX EXECUTOR
     # ==================================================
     coinex_executor = CoinExExecution(
         api_key="YOUR_API_KEY",
         secret_key="YOUR_SECRET_KEY"
     )
 
-    execution_layer = ExecutionLayer(coinex_executor, logger)
+    # ==================================================
+    # EXECUTION LAYER
+    # ==================================================
+    execution_layer = ExecutionLayer(
+        coinex_executor,
+        portfolio_manager,
+        logger
+    )
 
     # ==================================================
     # ROUTER
@@ -103,13 +116,10 @@ def setup_system():
 
         async def route(self, portfolio, signal):
 
-            # Risk Check
             if not self.risk_engine.evaluate(signal, portfolio):
                 return {"status": "REJECTED_BY_RISK"}
 
-            # Execute Trade
-            result = await self.execution_layer.execute(signal, portfolio)
-            return result
+            return await self.execution_layer.execute(signal, portfolio)
 
     router = ExecutionRouter(risk_engine, execution_layer)
 
@@ -121,12 +131,13 @@ def setup_system():
         "insight_engine": insight_engine,
         "scenario_engine": scenario_engine,
         "risk_engine": risk_engine,
-        "router": router
+        "router": router,
+        "portfolio_manager": portfolio_manager
     }
 
 
 # ======================================================
-# MARKET DATA CALLBACK (WS)
+# MARKET DATA CALLBACK
 # ======================================================
 async def on_market_data(data):
 
@@ -143,6 +154,7 @@ async def run_live():
     global latest_market_data
 
     system = setup_system()
+    portfolio_manager = system["portfolio_manager"]
 
     while True:
 
@@ -153,12 +165,20 @@ async def run_live():
         market_data = latest_market_data
 
         # ==================================================
-        # CONTEXT BUILD
+        # UPDATE PORTFOLIO PRICE (PnL LIVE)
+        # ==================================================
+        portfolio_manager.update_price(
+            market_data["symbol"],
+            market_data["price"]
+        )
+
+        # ==================================================
+        # CONTEXT
         # ==================================================
         context = system["context_builder"].build(market_data)
 
         # ==================================================
-        # RUN ENGINES
+        # ENGINES
         # ==================================================
         results = {}
 
@@ -179,12 +199,12 @@ async def run_live():
         insight = system["insight_engine"].build_insight(aggregated)
 
         # ==================================================
-        # SCENARIO ENGINE
+        # SCENARIOS
         # ==================================================
         scenarios = system["scenario_engine"].build_scenarios(aggregated)
 
         # ==================================================
-        # SIGNAL BUILD
+        # SIGNAL
         # ==================================================
         class Signal:
             def __init__(self):
@@ -195,7 +215,7 @@ async def run_live():
         signal = Signal()
 
         # ==================================================
-        # MOCK PORTFOLIO
+        # MOCK PORTFOLIO STATE
         # ==================================================
         portfolio = type("Portfolio", (), {
             "cash": 10000,
@@ -211,8 +231,7 @@ async def run_live():
         # OUTPUT
         # ==================================================
         print("\n================ LIVE UPDATE ================\n")
-
-        print("Market Data:", market_data)
+        print("Market:", market_data)
         print("Aggregated:", aggregated)
         print("Insight:", insight)
         print("Scenarios:", scenarios)
@@ -233,14 +252,14 @@ async def start_ws():
 
 
 # ======================================================
-# MAIN ENTRY
+# MAIN
 # ======================================================
 async def main():
 
-    task_ws = asyncio.create_task(start_ws())
-    task_live = asyncio.create_task(run_live())
-
-    await asyncio.gather(task_ws, task_live)
+    await asyncio.gather(
+        start_ws(),
+        run_live()
+    )
 
 
 if __name__ == "__main__":
