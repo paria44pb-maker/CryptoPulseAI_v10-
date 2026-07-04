@@ -1,0 +1,16 @@
+python-telegram-bot>=20.0
+python-dotenv>=1.0.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
+ccxt>=4.0.0
+httpx>=0.24.0
+pandas>=2.0.0
+numpy>=1.24.0
+feedparser>=6.0.0
+jdatetime>=4.0.0
+pytz>=2023.0
+pillow>=10.0.0
+aiohttp>=3.9.0
+mplfinance>=0.12.0
+ta>=0.10.0
+scipy>=1.10.0
